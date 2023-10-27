@@ -224,7 +224,7 @@ async fn handle_post_config<M: MakeNamespace, C>(
         config.heartbeat_url = Some(Url::parse(&url)?);
     }
 
-    store.store(config)?;
+    store.store(config).await?;
 
     Ok(())
 }
@@ -267,7 +267,7 @@ async fn handle_create_namespace<M: MakeNamespace, C: Connector>(
     if let Some(url) = req.heartbeat_url {
         config.heartbeat_url = Some(Url::parse(&url)?)
     }
-    store.store(config)?;
+    store.store(config).await?;
 
     Ok(())
 }
@@ -295,8 +295,7 @@ async fn handle_fork_namespace<M: MakeNamespace, C>(
     let mut to_config = (*to_store.get()).clone();
     to_config.max_db_pages = from_config.max_db_pages;
     to_config.heartbeat_url = from_config.heartbeat_url.clone();
-    to_config.bottomless_db_id = from_config.bottomless_db_id.clone();
-    to_store.store(to_config)?;
+    to_store.store(to_config).await?;
     Ok(())
 }
 

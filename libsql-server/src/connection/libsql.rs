@@ -17,6 +17,7 @@ use crate::metrics::{
     DESCRIBE_COUNT, PROGRAM_EXEC_COUNT, READ_QUERY_COUNT, VACUUM_COUNT, WAL_CHECKPOINT_COUNT,
     WRITE_QUERY_COUNT, WRITE_TXN_DURATION,
 };
+use crate::namespace::meta_store::MetaStoreHandle;
 use crate::query::Query;
 use crate::query_analysis::{StmtKind, TxnStatus};
 use crate::query_result_builder::{QueryBuilderConfig, QueryResultBuilder};
@@ -24,7 +25,6 @@ use crate::replication::FrameNo;
 use crate::stats::Stats;
 use crate::Result;
 
-use super::config::DatabaseConfigStore;
 use super::program::{Cond, DescribeCol, DescribeParam, DescribeResponse};
 use super::{MakeConnection, Program, Step, TXN_TIMEOUT};
 
@@ -33,7 +33,7 @@ pub struct MakeLibSqlConn<W: WalHook + 'static> {
     hook: &'static WalMethodsHook<W>,
     ctx_builder: Box<dyn Fn() -> W::Context + Sync + Send + 'static>,
     stats: Arc<Stats>,
-    config_store: Arc<DatabaseConfigStore>,
+    config_store: MetaStoreHandle,
     extensions: Arc<[PathBuf]>,
     max_response_size: u64,
     max_total_response_size: u64,
@@ -56,7 +56,7 @@ where
         hook: &'static WalMethodsHook<W>,
         ctx_builder: F,
         stats: Arc<Stats>,
-        config_store: Arc<DatabaseConfigStore>,
+        config_store: MetaStoreHandle,
         extensions: Arc<[PathBuf]>,
         max_response_size: u64,
         max_total_response_size: u64,
@@ -208,7 +208,7 @@ where
         wal_hook: &'static WalMethodsHook<W>,
         hook_ctx: W::Context,
         stats: Arc<Stats>,
-        config_store: Arc<DatabaseConfigStore>,
+        config_store: MetaStoreHandle,
         builder_config: QueryBuilderConfig,
         current_frame_no_receiver: watch::Receiver<Option<FrameNo>>,
         state: Arc<TxnState<W>>,
@@ -258,7 +258,7 @@ impl LibSqlConnection<TransparentMethods> {
             &crate::libsql_bindings::wal_hook::TRANSPARENT_METHODS,
             (),
             Default::default(),
-            DatabaseConfigStore::new_test().into(),
+            MetaStoreHandle::new_test().into(),
             QueryBuilderConfig::default(),
             rcv,
             Default::default(),
@@ -274,7 +274,7 @@ impl LibSqlConnection<TransparentMethods> {
 struct Connection<W: WalHook = TransparentMethods> {
     conn: sqld_libsql_bindings::Connection<W>,
     stats: Arc<Stats>,
-    config_store: Arc<DatabaseConfigStore>,
+    config_store: MetaStoreHandle,
     builder_config: QueryBuilderConfig,
     current_frame_no_receiver: watch::Receiver<Option<FrameNo>>,
     // must be dropped after the connection because the connection refers to it
@@ -446,7 +446,7 @@ impl<W: WalHook> Connection<W> {
         wal_methods: &'static WalMethodsHook<W>,
         hook_ctx: W::Context,
         stats: Arc<Stats>,
-        config_store: Arc<DatabaseConfigStore>,
+        config_store: MetaStoreHandle,
         builder_config: QueryBuilderConfig,
         current_frame_no_receiver: watch::Receiver<Option<FrameNo>>,
         state: Arc<TxnState<W>>,
@@ -952,7 +952,7 @@ mod test {
         let conn = Connection {
             conn: sqld_libsql_bindings::Connection::test(),
             stats: Arc::new(Stats::default()),
-            config_store: Arc::new(DatabaseConfigStore::new_test()),
+            config_store: MetaStoreHandle::new_test(),
             builder_config: QueryBuilderConfig::default(),
             current_frame_no_receiver: watch::channel(None).1,
             state: Default::default(),
@@ -985,7 +985,7 @@ mod test {
             &TRANSPARENT_METHODS,
             || (),
             Default::default(),
-            Arc::new(DatabaseConfigStore::load(tmp.path()).unwrap()),
+            MetaStoreHandle::load(tmp.path()).unwrap(),
             Arc::new([]),
             100000000,
             100000000,
@@ -1027,7 +1027,7 @@ mod test {
             &TRANSPARENT_METHODS,
             || (),
             Default::default(),
-            Arc::new(DatabaseConfigStore::load(tmp.path()).unwrap()),
+            MetaStoreHandle::load(tmp.path()).unwrap(),
             Arc::new([]),
             100000000,
             100000000,
@@ -1070,7 +1070,7 @@ mod test {
             &TRANSPARENT_METHODS,
             || (),
             Default::default(),
-            Arc::new(DatabaseConfigStore::load(tmp.path()).unwrap()),
+            MetaStoreHandle::load(tmp.path()).unwrap(),
             Arc::new([]),
             100000000,
             100000000,
@@ -1149,7 +1149,7 @@ mod test {
             &TRANSPARENT_METHODS,
             || (),
             Default::default(),
-            Arc::new(DatabaseConfigStore::load(tmp.path()).unwrap()),
+            MetaStoreHandle::load(tmp.path()).unwrap(),
             Arc::new([]),
             100000000,
             100000000,
