@@ -311,12 +311,8 @@ where
             fn trace_request<B>(req: &Request<B>, span: &Span) {
                 let _s = span.enter();
 
-                tracing::debug!(
-                    "got request: {} {} {:?}",
-                    req.method(),
-                    req.uri(),
-                    req.headers()
-                );
+                tracing::debug!("{} {} {:?}", req.method(), req.uri(), req.headers());
+
                 if let Some(v) = req.headers().get("x-libsql-client-version") {
                     if let Ok(s) = v.to_str() {
                         metrics::increment_counter!(CLIENT_VERSION, "version" => s.to_string());

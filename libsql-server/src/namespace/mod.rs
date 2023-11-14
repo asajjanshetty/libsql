@@ -159,6 +159,7 @@ pub trait MakeNamespace: Sync + Send + 'static {
         namespace: NamespaceName,
         bottomless_db_id_init: NamespaceBottomlessDbIdInit,
         prune_all: bool,
+        meta_store: &MetaStore<Self::Database>,
     ) -> crate::Result<()>;
 
     async fn fork(
@@ -219,8 +220,10 @@ impl MakeNamespace for PrimaryNamespaceMaker {
         namespace: NamespaceName,
         bottomless_db_id_init: NamespaceBottomlessDbIdInit,
         prune_all: bool,
+        meta_store: &MetaStore<Self::Database>,
     ) -> crate::Result<()> {
         let ns_path = self.config.base_path.join("dbs").join(namespace.as_str());
+        let meta_store_handle = meta_store.handle(namespace.clone());
 
         if prune_all {
             if let Some(ref options) = self.config.bottomless_replication {
@@ -230,18 +233,8 @@ impl MakeNamespace for PrimaryNamespaceMaker {
                         if !ns_path.try_exists()? {
                             NamespaceBottomlessDbId::NotProvided
                         } else {
-                            // TODO(lucio): Restore this code
-                            todo!()
-                            // let db_config_store_result = DatabaseConfigStore::load(&ns_path);
-                            // let db_config_store = match db_config_store_result {
-                            //     Ok(store) => store,
-                            //     Err(err) => {
-                            //         tracing::error!("could not load database: {}", err);
-                            //         return Err(err);
-                            //     }
-                            // };
-                            // let config = db_config_store.get();
-                            // NamespaceBottomlessDbId::from_config(&config)
+                            let config = meta_store_handle.get();
+                            NamespaceBottomlessDbId::from_config(&config)
                         }
                     }
                 };
@@ -362,6 +355,7 @@ impl MakeNamespace for ReplicaNamespaceMaker {
         namespace: NamespaceName,
         _bottomless_db_id_init: NamespaceBottomlessDbIdInit,
         _prune_all: bool,
+        _meta_store: &MetaStore<Self::Database>,
     ) -> crate::Result<()> {
         let ns_path = self.config.base_path.join("dbs").join(namespace.as_str());
         tokio::fs::remove_dir_all(ns_path).await?;
@@ -432,7 +426,12 @@ impl<M: MakeNamespace> NamespaceStore<M> {
         // destroy on-disk database and backups
         self.inner
             .make_namespace
-            .destroy(namespace.clone(), bottomless_db_id_init, true)
+            .destroy(
+                namespace.clone(),
+                bottomless_db_id_init,
+                true,
+                &self.inner.metadata,
+            )
             .await?;
 
         tracing::info!("destroyed namespace: {namespace}");
@@ -462,6 +461,7 @@ impl<M: MakeNamespace> NamespaceStore<M> {
                 namespace.clone(),
                 NamespaceBottomlessDbIdInit::FetchFromConfig,
                 false,
+                &self.inner.metadata,
             )
             .await?;
         let ns = self
