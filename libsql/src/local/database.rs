@@ -104,7 +104,7 @@ impl Database {
             connector,
             endpoint.as_str().try_into().unwrap(),
             auth_token,
-            version.as_ref().map(String::as_str),
+            version.as_deref(),
         )
         .unwrap();
         let path = PathBuf::from(db_path);
