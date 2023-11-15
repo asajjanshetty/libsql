@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::connection::libsql::LibSqlConnection;
 use crate::connection::write_proxy::{RpcStream, WriteProxyConnection};
 use crate::connection::{Connection, MakeConnection, TrackedConnection};
-use crate::replication::{ReplicationLogger, ReplicationLoggerHook};
+use crate::namespace::replication_wal::ReplicationWal;
+use crate::replication::ReplicationLogger;
+
+pub type PrimaryConnection = TrackedConnection<LibSqlConnection<ReplicationWal>>;
 
 pub trait Database: Sync + Send + 'static {
     /// The connection type of the database
@@ -27,8 +30,6 @@ impl Database for ReplicaDatabase {
 
     fn shutdown(&self) {}
 }
-
-pub type PrimaryConnection = TrackedConnection<LibSqlConnection<ReplicationLoggerHook>>;
 
 pub struct PrimaryDatabase {
     pub logger: Arc<ReplicationLogger>,
