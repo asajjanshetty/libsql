@@ -23,11 +23,11 @@ extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 
-pub const SQLITE_VERSION: &[u8; 7] = b"3.43.0\0";
-pub const SQLITE_VERSION_NUMBER: i32 = 3043000;
+pub const SQLITE_VERSION: &[u8; 7] = b"3.44.0\0";
+pub const SQLITE_VERSION_NUMBER: i32 = 3044000;
 pub const SQLITE_SOURCE_ID: &[u8; 85] =
-    b"2023-08-24 12:36:59 0f80b798b3f4b81a7bb4233c58294edd0f1156f36b6ecf5ab8e83631d468alt1\0";
-pub const LIBSQL_VERSION: &[u8; 6] = b"0.2.2\0";
+    b"2023-11-01 11:23:50 17129ba1ff7f0daf37100ee82d507aef7827cf38de1866e2633096ae6ad8alt1\0";
+pub const LIBSQL_VERSION: &[u8; 6] = b"0.2.3\0";
 pub const SQLITE_OK: i32 = 0;
 pub const SQLITE_ERROR: i32 = 1;
 pub const SQLITE_INTERNAL: i32 = 2;
@@ -399,6 +399,7 @@ pub const SQLITE_TESTCTRL_FIRST: i32 = 5;
 pub const SQLITE_TESTCTRL_PRNG_SAVE: i32 = 5;
 pub const SQLITE_TESTCTRL_PRNG_RESTORE: i32 = 6;
 pub const SQLITE_TESTCTRL_PRNG_RESET: i32 = 7;
+pub const SQLITE_TESTCTRL_FK_NO_ACTION: i32 = 7;
 pub const SQLITE_TESTCTRL_BITVEC_TEST: i32 = 8;
 pub const SQLITE_TESTCTRL_FAULT_INSTALL: i32 = 9;
 pub const SQLITE_TESTCTRL_BENIGN_MALLOC_HOOKS: i32 = 10;
@@ -499,6 +500,7 @@ pub const SQLITE_CHANGESETSTART_INVERT: i32 = 2;
 pub const SQLITE_CHANGESETAPPLY_NOSAVEPOINT: i32 = 1;
 pub const SQLITE_CHANGESETAPPLY_INVERT: i32 = 2;
 pub const SQLITE_CHANGESETAPPLY_IGNORENOOP: i32 = 4;
+pub const SQLITE_CHANGESETAPPLY_FKNOACTION: i32 = 8;
 pub const SQLITE_CHANGESET_DATA: i32 = 1;
 pub const SQLITE_CHANGESET_NOTFOUND: i32 = 2;
 pub const SQLITE_CHANGESET_CONFLICT: i32 = 3;
@@ -1096,17 +1098,7 @@ extern "C" {
         ppDb: *mut *mut sqlite3,
         flags: ::std::os::raw::c_int,
         zVfs: *const ::std::os::raw::c_char,
-        zWal: *const ::std::os::raw::c_char,
-    ) -> ::std::os::raw::c_int;
-}
-extern "C" {
-    pub fn libsql_open_v2(
-        filename: *const ::std::os::raw::c_char,
-        ppDb: *mut *mut sqlite3,
-        flags: ::std::os::raw::c_int,
-        zVfs: *const ::std::os::raw::c_char,
-        zWal: *const ::std::os::raw::c_char,
-        pWalMethodsData: *mut ::std::os::raw::c_void,
+        create_wal: libsql_create_wal,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
@@ -1748,6 +1740,20 @@ extern "C" {
         arg3: ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
     );
 }
+extern "C" {
+    pub fn sqlite3_get_clientdata(
+        arg1: *mut sqlite3,
+        arg2: *const ::std::os::raw::c_char,
+    ) -> *mut ::std::os::raw::c_void;
+}
+extern "C" {
+    pub fn sqlite3_set_clientdata(
+        arg1: *mut sqlite3,
+        arg2: *const ::std::os::raw::c_char,
+        arg3: *mut ::std::os::raw::c_void,
+        arg4: ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    ) -> ::std::os::raw::c_int;
+}
 pub type sqlite3_destructor_type =
     ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>;
 extern "C" {
@@ -2235,6 +2241,20 @@ pub struct sqlite3_module {
     pub xShadowName: ::std::option::Option<
         unsafe extern "C" fn(arg1: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int,
     >,
+    pub xIntegrity: ::std::option::Option<
+        unsafe extern "C" fn(
+            pVTab: *mut sqlite3_vtab,
+            zSchema: *const ::std::os::raw::c_char,
+            zTabName: *const ::std::os::raw::c_char,
+            mFlags: ::std::os::raw::c_int,
+            pzErr: *mut *mut ::std::os::raw::c_char,
+        ) -> ::std::os::raw::c_int,
+    >,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct libsql_module {
+    pub iVersion: ::std::os::raw::c_int,
     pub xPreparedSql: ::std::option::Option<
         unsafe extern "C" fn(
             arg1: *mut sqlite3_vtab_cursor,
@@ -2297,6 +2317,16 @@ extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
+    pub fn libsql_create_module(
+        db: *mut sqlite3,
+        zName: *const ::std::os::raw::c_char,
+        p: *const sqlite3_module,
+        pLibsql: *const libsql_module,
+        pClientData: *mut ::std::os::raw::c_void,
+        xDestroy: ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>,
+    ) -> ::std::os::raw::c_int;
+}
+extern "C" {
     pub fn sqlite3_drop_modules(
         db: *mut sqlite3,
         azKeep: *mut *const ::std::os::raw::c_char,
@@ -2306,6 +2336,7 @@ extern "C" {
 #[derive(Debug, Copy, Clone)]
 pub struct sqlite3_vtab {
     pub pModule: *const sqlite3_module,
+    pub pLibsqlModule: *const libsql_module,
     pub nRef: ::std::os::raw::c_int,
     pub zErrMsg: *mut ::std::os::raw::c_char,
 }
@@ -2382,22 +2413,6 @@ extern "C" {
 }
 extern "C" {
     pub fn sqlite3_vfs_unregister(arg1: *mut sqlite3_vfs) -> ::std::os::raw::c_int;
-}
-extern "C" {
-    pub fn libsql_wal_methods_find(zName: *const ::std::os::raw::c_char)
-        -> *mut libsql_wal_methods;
-}
-extern "C" {
-    pub fn libsql_wal_methods_register(arg1: *mut libsql_wal_methods) -> ::std::os::raw::c_int;
-}
-extern "C" {
-    pub fn libsql_wal_methods_unregister(arg1: *mut libsql_wal_methods) -> ::std::os::raw::c_int;
-}
-extern "C" {
-    pub fn libsql_wal_methods_next(w: *mut libsql_wal_methods) -> *mut libsql_wal_methods;
-}
-extern "C" {
-    pub fn libsql_wal_methods_name(w: *mut libsql_wal_methods) -> *const ::std::os::raw::c_char;
 }
 extern "C" {
     pub fn sqlite3_mutex_alloc(arg1: ::std::os::raw::c_int) -> *mut sqlite3_mutex;
@@ -3130,6 +3145,16 @@ extern "C" {
         ppOut: *mut *mut ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int;
 }
+extern "C" {
+    pub fn sqlite3changeset_upgrade(
+        db: *mut sqlite3,
+        zDb: *const ::std::os::raw::c_char,
+        nIn: ::std::os::raw::c_int,
+        pIn: *const ::std::os::raw::c_void,
+        pnOut: *mut ::std::os::raw::c_int,
+        ppOut: *mut *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct sqlite3_changegroup {
@@ -3137,6 +3162,13 @@ pub struct sqlite3_changegroup {
 }
 extern "C" {
     pub fn sqlite3changegroup_new(pp: *mut *mut sqlite3_changegroup) -> ::std::os::raw::c_int;
+}
+extern "C" {
+    pub fn sqlite3changegroup_schema(
+        arg1: *mut sqlite3_changegroup,
+        arg2: *mut sqlite3,
+        zDb: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
 }
 extern "C" {
     pub fn sqlite3changegroup_add(
@@ -3698,63 +3730,52 @@ pub struct libsql_pghdr {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct wal_impl {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct create_wal_impl {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct libsql_wal_methods {
     pub iVersion: ::std::os::raw::c_int,
-    pub xOpen: ::std::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut sqlite3_vfs,
-            arg2: *mut sqlite3_file,
-            arg3: *const ::std::os::raw::c_char,
-            no_shm_mode: ::std::os::raw::c_int,
-            max_size: ::std::os::raw::c_longlong,
-            arg4: *mut libsql_wal_methods,
-            arg5: *mut *mut libsql_wal,
-        ) -> ::std::os::raw::c_int,
-    >,
-    pub xClose: ::std::option::Option<
-        unsafe extern "C" fn(
-            arg1: *mut libsql_wal,
-            db: *mut sqlite3,
-            sync_flags: ::std::os::raw::c_int,
-            nBuf: ::std::os::raw::c_int,
-            zBuf: *mut ::std::os::raw::c_uchar,
-        ) -> ::std::os::raw::c_int,
-    >,
     pub xLimit: ::std::option::Option<
-        unsafe extern "C" fn(arg1: *mut libsql_wal, limit: ::std::os::raw::c_longlong),
+        unsafe extern "C" fn(pWal: *mut wal_impl, limit: ::std::os::raw::c_longlong),
     >,
     pub xBeginReadTransaction: ::std::option::Option<
         unsafe extern "C" fn(
-            arg1: *mut libsql_wal,
-            arg2: *mut ::std::os::raw::c_int,
+            pWal: *mut wal_impl,
+            arg1: *mut ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int,
     >,
-    pub xEndReadTransaction: ::std::option::Option<unsafe extern "C" fn(arg1: *mut libsql_wal)>,
+    pub xEndReadTransaction: ::std::option::Option<unsafe extern "C" fn(arg1: *mut wal_impl)>,
     pub xFindFrame: ::std::option::Option<
         unsafe extern "C" fn(
-            arg1: *mut libsql_wal,
-            arg2: ::std::os::raw::c_uint,
-            arg3: *mut ::std::os::raw::c_uint,
+            pWal: *mut wal_impl,
+            arg1: ::std::os::raw::c_uint,
+            arg2: *mut ::std::os::raw::c_uint,
         ) -> ::std::os::raw::c_int,
     >,
     pub xReadFrame: ::std::option::Option<
         unsafe extern "C" fn(
-            arg1: *mut libsql_wal,
-            arg2: ::std::os::raw::c_uint,
-            arg3: ::std::os::raw::c_int,
-            arg4: *mut ::std::os::raw::c_uchar,
+            pWal: *mut wal_impl,
+            arg1: ::std::os::raw::c_uint,
+            arg2: ::std::os::raw::c_int,
+            arg3: *mut ::std::os::raw::c_uchar,
         ) -> ::std::os::raw::c_int,
     >,
-    pub xDbsize: ::std::option::Option<
-        unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_uint,
-    >,
+    pub xDbsize:
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_uint>,
     pub xBeginWriteTransaction:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_int>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_int>,
     pub xEndWriteTransaction:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_int>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_int>,
     pub xUndo: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             xUndo: ::std::option::Option<
                 unsafe extern "C" fn(
                     arg1: *mut ::std::os::raw::c_void,
@@ -3765,17 +3786,17 @@ pub struct libsql_wal_methods {
         ) -> ::std::os::raw::c_int,
     >,
     pub xSavepoint: ::std::option::Option<
-        unsafe extern "C" fn(pWal: *mut libsql_wal, aWalData: *mut ::std::os::raw::c_uint),
+        unsafe extern "C" fn(pWal: *mut wal_impl, aWalData: *mut ::std::os::raw::c_uint),
     >,
     pub xSavepointUndo: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             aWalData: *mut ::std::os::raw::c_uint,
         ) -> ::std::os::raw::c_int,
     >,
     pub xFrames: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             arg1: ::std::os::raw::c_int,
             arg2: *mut libsql_pghdr,
             arg3: ::std::os::raw::c_uint,
@@ -3785,7 +3806,7 @@ pub struct libsql_wal_methods {
     >,
     pub xCheckpoint: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             db: *mut sqlite3,
             eMode: ::std::os::raw::c_int,
             xBusy: ::std::option::Option<
@@ -3800,63 +3821,44 @@ pub struct libsql_wal_methods {
         ) -> ::std::os::raw::c_int,
     >,
     pub xCallback:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_int>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_int>,
     pub xExclusiveMode: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             op: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int,
     >,
     pub xHeapMemory:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_int>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_int>,
     pub xSnapshotGet: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             ppSnapshot: *mut *mut sqlite3_snapshot,
         ) -> ::std::os::raw::c_int,
     >,
     pub xSnapshotOpen: ::std::option::Option<
-        unsafe extern "C" fn(pWal: *mut libsql_wal, pSnapshot: *mut sqlite3_snapshot),
+        unsafe extern "C" fn(pWal: *mut wal_impl, pSnapshot: *mut sqlite3_snapshot),
     >,
     pub xSnapshotRecover:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_int>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_int>,
     pub xSnapshotCheck: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut ::std::os::raw::c_void,
             pSnapshot: *mut sqlite3_snapshot,
         ) -> ::std::os::raw::c_int,
     >,
-    pub xSnapshotUnlock: ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal)>,
+    pub xSnapshotUnlock: ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl)>,
     pub xFramesize:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> ::std::os::raw::c_int>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> ::std::os::raw::c_int>,
     pub xFile:
-        ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal) -> *mut sqlite3_file>,
+        ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl) -> *mut sqlite3_file>,
     pub xWriteLock: ::std::option::Option<
         unsafe extern "C" fn(
-            pWal: *mut libsql_wal,
+            pWal: *mut wal_impl,
             bLock: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int,
     >,
-    pub xDb: ::std::option::Option<unsafe extern "C" fn(pWal: *mut libsql_wal, db: *mut sqlite3)>,
-    pub xPathnameLen: ::std::option::Option<
-        unsafe extern "C" fn(origPathname: ::std::os::raw::c_int) -> ::std::os::raw::c_int,
-    >,
-    pub xGetWalPathname: ::std::option::Option<
-        unsafe extern "C" fn(
-            buf: *mut ::std::os::raw::c_char,
-            orig: *const ::std::os::raw::c_char,
-            orig_len: ::std::os::raw::c_int,
-        ),
-    >,
-    pub xPreMainDbOpen: ::std::option::Option<
-        unsafe extern "C" fn(
-            methods: *mut libsql_wal_methods,
-            main_db_path: *const ::std::os::raw::c_char,
-        ) -> ::std::os::raw::c_int,
-    >,
-    pub bUsesShm: ::std::os::raw::c_int,
-    pub zName: *const ::std::os::raw::c_char,
-    pub pNext: *mut libsql_wal_methods,
+    pub xDb: ::std::option::Option<unsafe extern "C" fn(pWal: *mut wal_impl, db: *mut sqlite3)>,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -3885,7 +3887,50 @@ pub struct WalIndexHdr {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct libsql_wal {
+pub struct libsql_create_wal {
+    pub bUsesShm: ::std::os::raw::c_int,
+    pub xOpen: ::std::option::Option<
+        unsafe extern "C" fn(
+            pData: *mut create_wal_impl,
+            arg1: *mut sqlite3_vfs,
+            arg2: *mut sqlite3_file,
+            no_shm_mode: ::std::os::raw::c_int,
+            max_size: ::std::os::raw::c_longlong,
+            zMainDbFileName: *const ::std::os::raw::c_char,
+            out_wal: *mut libsql_wal,
+        ) -> ::std::os::raw::c_int,
+    >,
+    pub xClose: ::std::option::Option<
+        unsafe extern "C" fn(
+            pData: *mut create_wal_impl,
+            pWal: *mut wal_impl,
+            db: *mut sqlite3,
+            sync_flags: ::std::os::raw::c_int,
+            nBuf: ::std::os::raw::c_int,
+            zBuf: *mut ::std::os::raw::c_uchar,
+        ) -> ::std::os::raw::c_int,
+    >,
+    pub xLogDestroy: ::std::option::Option<
+        unsafe extern "C" fn(
+            pData: *mut create_wal_impl,
+            vfs: *mut sqlite3_vfs,
+            zMainDbFileName: *const ::std::os::raw::c_char,
+        ) -> ::std::os::raw::c_int,
+    >,
+    pub xLogExists: ::std::option::Option<
+        unsafe extern "C" fn(
+            pData: *mut create_wal_impl,
+            vfs: *mut sqlite3_vfs,
+            zMainDbFileName: *const ::std::os::raw::c_char,
+            exist: *mut ::std::os::raw::c_int,
+        ) -> ::std::os::raw::c_int,
+    >,
+    pub xDestroy: ::std::option::Option<unsafe extern "C" fn(pData: *mut create_wal_impl)>,
+    pub pData: *mut create_wal_impl,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct sqlite3_wal {
     pub pVfs: *mut sqlite3_vfs,
     pub pDbFd: *mut sqlite3_file,
     pub pWalFd: *mut sqlite3_file,
@@ -3913,7 +3958,32 @@ pub struct libsql_wal {
     pub lockError: ::std::os::raw::c_uchar,
     pub pSnapshot: *mut WalIndexHdr,
     pub db: *mut sqlite3,
-    pub pMethods: *mut libsql_wal_methods,
-    pub pMethodsData: *mut ::std::os::raw::c_void,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct libsql_wal {
+    pub methods: libsql_wal_methods,
+    pub pData: *mut wal_impl,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RefCountCreateWal {
+    pub n: ::std::os::raw::c_int,
+    pub ref_: libsql_create_wal,
+}
+extern "C" {
+    pub fn make_ref_counted_create_wal(
+        create_wal: libsql_create_wal,
+        out: *mut *mut RefCountCreateWal,
+    ) -> ::std::os::raw::c_int;
+}
+extern "C" {
+    pub fn destroy_create_wal(p: *mut RefCountCreateWal);
+}
+extern "C" {
+    pub fn clone_create_wal(p: *mut RefCountCreateWal) -> *mut RefCountCreateWal;
+}
+extern "C" {
+    pub static mut sqlite3_create_wal: libsql_create_wal;
 }
 pub type __builtin_va_list = *mut ::std::os::raw::c_char;
